@@ -45,6 +45,14 @@ result_queue = multiprocessing.Queue()
 # a global queue that contains control messages to be sent to the client
 command_queue = multiprocessing.Queue()
 
+# a global queue used to publish input streams in a web server for debugging purposes
+input_display_queue = multiprocessing.Queue(1)
+# a global queue used to publish output streams in a web server for debugging purposes
+output_display_queue_dict = {'image': multiprocessing.Queue(1),
+                             'debug': multiprocessing.Queue(1),
+                             'text': multiprocessing.Queue(3),
+                             'video': multiprocessing.Queue(3)}
+
 
 class MobileCommError(Exception):
     pass
@@ -103,25 +111,13 @@ class MobileControlHandler(MobileSensorHandler):
             cmd_data = self.data_queue.get(timeout = 0.0001)
             cmd_json = json.loads(cmd_data)
 
-            if "recover" in cmd_json:
-                delay = cmd_json.get('recover')
-                del cmd_json['recover']
-
-                cmd_json1 = cmd_json.copy()
-                cmd_json2 = cmd_json.copy()
-                cmd_json2['delay'] = delay
-                if gabriel.Protocol_control.JSON_KEY_SENSOR_TYPE_IMAGE in cmd_json2:
-                    cmd_json2[gabriel.Protocol_control.JSON_KEY_SENSOR_TYPE_IMAGE] = not cmd_json2[gabriel.Protocol_control.JSON_KEY_SENSOR_TYPE_IMAGE]
-
-                cmd_data1 = json.dumps(cmd_json1)
-                cmd_data2 = json.dumps(cmd_json2)
-
-                print cmd_data1
-                print cmd_data2
-                packet = struct.pack("!I%dsI%ds" % (len(cmd_data1), len(cmd_data2)), len(cmd_data1), cmd_data1, len(cmd_data2), cmd_data2)
-                self.request.send(packet)
-                self.wfile.flush()
-                LOG.info("command sent to mobile device: %s", cmd_data)
+            if isinstance(cmd_json, list):
+                for cmd_j in cmd_json:
+                    cmd_data = json.dumps(cmd_j)
+                    packet = struct.pack("!I%ds" % len(cmd_data), len(cmd_data), cmd_data)
+                    self.request.send(packet)
+                    self.wfile.flush()
+                    LOG.info("command sent to mobile device: %s", cmd_data)
 
             else:
                 ## send return data to the mobile device
@@ -151,6 +147,7 @@ class MobileVideoHandler(MobileSensorHandler):
             if not os.path.exists(gabriel.Const.LOG_IMAGES_PATH):
                 os.makedirs(gabriel.Const.LOG_IMAGES_PATH)
             self.log_images_counter = 0
+            self.log_images_timing = open(os.path.join(gabriel.Const.LOG_IMAGES_PATH, "timing.txt"), "w")
         if gabriel.Debug.SAVE_VIDEO:
             self.log_video_writer_created = False
 
@@ -203,11 +200,25 @@ class MobileVideoHandler(MobileSensorHandler):
             except Queue.Full as e:
                 pass
 
+        ## display input stream for debug purpose
+        if gabriel.Debug.WEB_SERVER:
+            if input_display_queue.full():
+                try:
+                    input_display_queue.get_nowait()
+                except Queue.Empty as e:
+                    pass
+            try:
+                input_display_queue.put_nowait(image_data)
+            except Queue.Full as e:
+                pass
+
         ## write images into files
         if gabriel.Debug.SAVE_IMAGES:
             self.log_images_counter += 1
             with open(os.path.join(gabriel.Const.LOG_IMAGES_PATH, "frame-" + gabriel.util.add_preceding_zeros(self.log_images_counter) + ".jpeg"), "w") as f:
                 f.write(image_data)
+            if self.log_images_timing is not None:
+                self.log_images_timing.write("%d,%d\n" % (self.log_images_counter, int(time.time() * 1000)))
 
         ## write images into a video
         if gabriel.Debug.SAVE_VIDEO:
@@ -228,9 +239,15 @@ class MobileAccHandler(MobileSensorHandler):
         if gabriel.Debug.LOG_STAT:
             self.frame_count = 0
             self.total_recv_size = 0
+        if gabriel.Debug.SAVE_ACC:
+            self.acc_log = open(gabriel.Const.LOG_ACC_PATH, "w")
 
     def __repr__(self):
         return "Mobile Acc Server"
+
+    def chunks(self, data, n):
+        for i in xrange(0, len(data), n):
+            yield data[i : i + n]
 
     def _handle_input_data(self):
         header_size = struct.unpack("!I", self._recv_all(4))[0]
@@ -251,6 +268,14 @@ class MobileAccHandler(MobileSensorHandler):
                 log_msg = "ACC FPS : current(%f), avg(%f), BW(%f Mbps), offloading engine(%d)" % \
                         (current_FPS, average_FPS, 8 * self.total_recv_size / (current_time - self.init_connect_time) / 1000 / 1000, len(acc_queue_list))
                 LOG.info(log_msg)
+
+        ## log acc data
+        if gabriel.Debug.SAVE_ACC:
+            ACC_SEGMENT_SIZE = 12 # (float, float, float)
+            t = int(time.time() * 1000)
+            for chunk in self.chunks(acc_data, ACC_SEGMENT_SIZE):
+                (acc_x, acc_y, acc_z) = struct.unpack("!fff", chunk)
+                self.acc_log.write("%d,%f,%f,%f\n" % (t, acc_x, acc_y, acc_z))
 
         ## put current acc data in all registered cognitive engine queue
         for acc_queue in acc_queue_list:
@@ -325,6 +350,70 @@ class MobileResultHandler(MobileSensorHandler):
     def __repr__(self):
         return "Mobile Result Server"
 
+    @staticmethod
+    def _add_data_to_debug_server(rtn_header_json, rtn_data_json):
+        """Add data to debug server.
+        Debug server accepts 4 types of data: annotated input image with detected object, video instruction,
+        image instruction, and text instruction. It only supports instructions in json format (legacy).
+        """
+        # only the annotated debug image are in the header, everything else are in the data
+        image_encoded = rtn_header_json.get(gabriel.Protocol_debug.JSON_KEY_ANNOTATED_INPUT_IMAGE, None)
+        if image_encoded is not None:
+            image_data = base64.b64decode(image_encoded)
+            if output_display_queue_dict['debug'].full():
+                try:
+                    output_display_queue_dict['debug'].get_nowait()
+                except Queue.Empty as e:
+                    pass
+            try:
+                output_display_queue_dict['debug'].put_nowait(image_data)
+            except Queue.Full as e:
+                pass
+
+        # image response
+        image_encoded = rtn_data_json.get('image', None)
+        if image_encoded is not None:
+            image_data = base64.b64decode(image_encoded)
+            if output_display_queue_dict['image'].full():
+                try:
+                    output_display_queue_dict['image'].get_nowait()
+                except Queue.Empty as e:
+                    pass
+            try:
+                output_display_queue_dict['image'].put_nowait(image_data)
+            except Queue.Full as e:
+                pass
+
+        # text response
+        text_data = rtn_data_json.get('speech', None)
+        if text_data is not None:
+            if output_display_queue_dict['text'].full():
+                try:
+                    output_display_queue_dict['text'].get_nowait()
+                except Queue.Empty as e:
+                    pass
+            try:
+                output_display_queue_dict['text'].put_nowait(text_data)
+            except Queue.Full as e:
+                pass
+
+        # video response
+        video_url = rtn_data_json.get('video', None)
+        if video_url is not None:
+            if output_display_queue_dict['video'].full():
+                try:
+                    output_display_queue_dict['video'].get_nowait()
+                except Queue.Empty as e:
+                    pass
+            try:
+                output_display_queue_dict['video'].put_nowait(video_url)
+            except Queue.Full as e:
+                pass
+
+    @staticmethod
+    def _remove_debug_header_fields(rtn_header_json):
+        rtn_header_json.pop(gabriel.Protocol_debug.JSON_KEY_ANNOTATED_INPUT_IMAGE, None)
+
     def _handle_queue_data(self):
         try:
             (rtn_header, rtn_data) = self.data_queue.get(timeout = 0.0001)
@@ -352,6 +441,15 @@ class MobileResultHandler(MobileSensorHandler):
                 if self.time_breakdown_log is not None:
                     self.time_breakdown_log.write("%s\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n" %
                             (frame_id, control_recv_from_mobile_time, app_recv_time, symbolic_done_time, app_sent_time, ucomm_recv_time, ucomm_sent_time, now))
+
+            if gabriel.Debug.WEB_SERVER:
+                if gabriel.Const.LEGACY_JSON_ONLY_RESULT:
+                    rtn_data_json = json.loads(rtn_data)
+                    self._add_data_to_debug_server(rtn_header_json, rtn_data_json)
+                else:
+                    raise NotImplementedError("Debug server only support legacy mode!")
+
+            self._remove_debug_header_fields(rtn_header_json)
 
             ## send return data to the mobile device
             # packet format: header size, header, data

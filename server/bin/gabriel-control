@@ -60,6 +60,9 @@ def process_command_line(argv):
             '-r', '--frame_rate', type = "int", action = 'store', dest = 'frame_rate', default = 15,
             help = "the frame rate for loading jpeg images")
     parser.add_option(
+            '-m', '--measurement', action = 'store_true',
+            help = "log timestamps")
+    parser.add_option(
             '--log_images', action = 'store_true',
             help = "set if want to store all received images")
     parser.add_option(
@@ -72,11 +75,23 @@ def process_command_line(argv):
             '--log_video_path', action = 'store', default = None,
             help = "path to store log video file")
     parser.add_option(
+            '--log_acc', action = 'store_true',
+            help = "set if want to store all received accelerometer data into a file")
+    parser.add_option(
+            '--log_acc_path', action = 'store', default = None,
+            help = "path to store accelerometer values")
+    parser.add_option(
+            '-d', '--debug_display', action = 'store_true',
+            help = "set if want to display input/output stream on a webserver")
+    parser.add_option(
             '-l', '--legacy_mode', action = 'store_true',
             help = "whether to use the legacy protocal. If true, the result is a pure JSON.")
     parser.add_option(
             '-n', '--net_interface', action = 'store', default = "eth0",
             help = "the network interface with which the cognitive engines communicate")
+    parser.add_option(
+            '-s', '--service_ip', action = 'store',
+            help = "Use supplied IP address when returning enpoints for services. Useful when running in a container or VM with a externally assigned public IP.")
     settings, args = parser.parse_args(argv)
 
     if hasattr(settings, 'image_dir') and settings.image_dir is not None:
@@ -209,11 +224,28 @@ def main():
         gabriel.Debug.SAVE_VIDEO = True
         if settings.log_images_path is not None:
             gabriel.Const.LOG_VIDEO_PATH = settings.log_video_path
+    if settings.log_acc:
+        gabriel.Debug.SAVE_ACC = True
+        if settings.log_acc_path is not None:
+            gabriel.Const.LOG_ACC_PATH = settings.log_acc_path
+    if settings.measurement:
+        gabriel.Debug.TIME_MEASUREMENT = True
+    if settings.debug_display:
+        gabriel.Debug.WEB_SERVER = True
     if settings.legacy_mode:
         gabriel.Const.LEGACY_JSON_ONLY_RESULT = True
     REST_server.set_interface(settings.net_interface)
+    if settings.service_ip is not None:
+        REST_server.set_ip(settings.service_ip)
 
     start_background_services()
+
+    ## webserver to display input and output stream for debug purposes
+    if gabriel.Debug.WEB_SERVER:
+        http_server = gabriel.control.ThreadedHTTPServer(('0.0.0.0', 7070), gabriel.control.MJPEGStreamHandler)
+        http_server_thread = threading.Thread(target = http_server.serve_forever)
+        http_server_thread.daemon = True
+        http_server_thread.start()
 
     ## mobile servers that communicate with the mobile device (start with m_)
     m_control_server = gabriel.control.MobileCommServer(gabriel.Const.MOBILE_SERVER_CONTROL_PORT, gabriel.control.MobileControlHandler)
@@ -298,6 +330,10 @@ def main():
             p_acc_server.terminate()
         if p_audio_server is not None:
             p_audio_server.terminate()
+
+        if gabriel.Debug.WEB_SERVER:
+            if http_server is not None:
+                http_server.terminate()
 
     '''
     for each_thread in all_thread_list:

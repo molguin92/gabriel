@@ -1,10 +1,9 @@
-Gabriel: Platform for Wearable Cognitive Assistance Applications [![PyPI](https://img.shields.io/pypi/v/elijah-gabriel.svg)](https://pypi.org/project/elijah-gabriel/) [![Docker Build Status](https://img.shields.io/docker/build/jamesjue/gabriel.svg)](https://hub.docker.com/r/jamesjue/gabriel) [![Docker Pulls](https://img.shields.io/docker/pulls/jamesjue/gabriel.svg)](https://hub.docker.com/r/jamesjue/gabriel/)
+Gabriel: Platform for Wearable Cognitive Assistance Applications [![PyPI](https://img.shields.io/pypi/v/elijah-gabriel.svg)](https://pypi.org/project/elijah-gabriel/) [![Docker Build Status](https://img.shields.io/docker/build/cmusatyalab/gabriel.svg)](https://hub.docker.com/r/cmusatyalab/gabriel) [![Docker Pulls](https://img.shields.io/docker/pulls/cmusatyalab/gabriel.svg)](https://hub.docker.com/r/cmusatyalab/gabriel/)
 ========================================================
-Copyright (C) 2013-2014 Carnegie Mellon University
+Copyright (C) 2013-2018 Carnegie Mellon University
+
 This is a developing project and some features might not be stable yet.
 Please visit our website at [Elijah page](http://elijah.cs.cmu.edu/).
-
-
 
 License
 ----------
@@ -17,10 +16,22 @@ A copy of this license is reproduced in the [LICENSE](LICENSE) file.
 
 Applications
 ------------
-We have built several applications on top of Gabriel with different wearable devices, including Google Glass and Microsoft HoloLens. Video demos for some of them can be found at http://goo.gl/02m0nL.
+We have built several applications on top of Gabriel with different wearable devices, including Google Glass, ODG R-7,  and Microsoft HoloLens.
+Video demos for some of them can be found at http://goo.gl/02m0nL.
 
+Source Code
+* [Sandwich](https://github.com/cmusatyalab/gabriel-sandwich)
+* [Ikea](https://github.com/cmusatyalab/gabriel-ikea)
+* [Lego](https://github.com/cmusatyalab/gabriel-lego)
 
-Installation - Gabriel System
+Docker Images for each of the application backends are available from our [Docker Hub](https://hub.docker.com/r/cmusatyalab/) page.
+
+An Android client is available on the Google PlayStore 
+
+<a href='https://play.google.com/store/apps/details?id=edu.cmu.cs.gabrielclient'><img height='125px' width='323px' alt='Get it on Google Play' src='https://play.google.com/intl/en_us/badges/images/generic/en_badge_web_generic.png'/></a>
+Google Play and the Google Play logo are trademarks of Google LLC.
+
+Installation from Source - Gabriel System
 -------------
 
 Ensure the `python` executable on your PATH is Python 2
@@ -42,8 +53,8 @@ You also need the following packages.
 * parallel-ssh
 * psutil >= 0.4.1
 * JRE for UPnP
-* six==1.1.0
-* Flask==0.9
+* six==1.9.0
+* Flask==0.12.3
 * Flask-RESTful==0.3.5
 * opencv >=2.4 (optional)
 * numpy (optional)
