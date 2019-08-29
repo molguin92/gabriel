@@ -36,5 +36,4 @@ services:
             - /bin/bash
             - -c
             - |
-                sleep 5;
                 gabriel-ucomm -s gabriel_control:8021;
